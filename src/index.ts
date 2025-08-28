@@ -101,7 +101,7 @@ export default function shadcnRegistry(): Plugin<void> {
       const componentsConfigPath = joinPath(configRootDir, "components.json")
       const { default: componentsConfig } = await import(componentsConfigPath, { with: { type: "json" } })
       const resolvedAliases = await resolveComponentsConfigAliases.call(this, componentsConfig)
-      console.debug(resolvedAliases)
+      // console.debug(resolvedAliases)
     },
 
     // writeBundle(...args) {
