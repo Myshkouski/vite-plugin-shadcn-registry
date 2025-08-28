@@ -1,8 +1,17 @@
 {
   "name": "vite-plugin-shadcn-registry",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "A simple example library built by tsdown",
   "type": "module",
+  "homepage": "https://github.com/myshkouski/vite-plugin-shadcn-registry",
+  "bugs": {
+    "url": "https://github.com/myshkouski/vite-plugin-shadcn-registry/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/myshkouski/vite-plugin-shadcn-registry.git"
+  },
+  "author": "Alexei Myshkouski <alexeimyshkouski@gmail.com>",
   "files": [
     "dist"
   ],
@@ -13,11 +22,26 @@
     ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch"
   },
   "devDependencies": {
-    "tsdown": "latest"
+    "@types/node": "^22",
+    "bumpp": "^10.2.3",
+    "rollup": "^4.49.0",
+    "shadcn-vue": "^2.2.0",
+    "tsdown": "^0.14.2",
+    "typescript": "^5.9.2",
+    "zod": "^3"
+  },
+  "dependencies": {
+    "change-case": "^5.4.4"
+  },
+  "peerDependencies": {
+    "vite": "^7"
   }
 }
