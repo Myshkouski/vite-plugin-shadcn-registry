@@ -3,6 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://img.shields.io/npm/v/vite-plugin-shadcn-registry)](https://www.npmjs.com/package/vite-plugin-shadcn-registry)
 
+> **Experimental Notice**  
+> ⚠️ This plugin is currently in an experimental phase. Expect breaking changes and major updates in the near future as we work towards a stable release.
+
 A Vite plugin for generating Shadcn components following this schema definitions:
 - [registry.json](https://ui.shadcn.com/schema/registry.json)
 - [registry-item.json](https://ui.shadcn.com/schema/registry-item.json).
