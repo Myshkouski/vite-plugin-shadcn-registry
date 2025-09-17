@@ -1,8 +1,9 @@
 import { kebabCase } from "change-case"
 import { fileURLToPath } from "node:url"
-import { join as joinPath, relative as relativePath, parse as parsePath } from 'node:path'
-import { createFilter, type FilterPattern, type Plugin } from "vite"
-import type { ModuleInfo, PluginContext } from "rollup"
+import { join as joinPath, relative as relativePath, parse as parsePath, dirname } from 'node:path'
+import { createFilter, type Plugin } from "vite"
+import type { InputOption, PluginContext, ResolvedId } from "rollup"
+import { glob } from "glob"
 
 type ShadcnItemType = RegistryItemType | "registry:shadcn" | "external"
 type ShadcnItemMeta = {
@@ -16,6 +17,8 @@ type ShadcnItem = {
 }
 
 const PLUGIN_NAME = "shadcn-registry"
+const SHADCN_REGISTRY_VIRTUAL_MODULE_ID = "\0virtual:shadcn-registry"
+const SHADCN_REGISTRY_CHUNK_FILENAME = "shadcn-registry.js"
 
 export default function shadcnRegistry(): Plugin<void> {
   const srcDir = "src"
@@ -46,67 +49,95 @@ export default function shadcnRegistry(): Plugin<void> {
   ])
 
   let configRootDir: string
+  let shadcnEntries: Record<keyof ShadcnComponentConfig["aliases"], Pattern>
   let registry: RegistryImpl
 
-  function getShadcnItemMeta(moduleInfo: ModuleInfo): ShadcnItemMeta {
-    if (isShadcnComponent(moduleInfo.id)) {
+  function getShadcnItemMeta(this: PluginContext, resolvedId: ResolvedId): ShadcnItemMeta {
+    const { id: moduleId, external } = resolvedId
+
+    if (isShadcnComponent(moduleId)) {
       return {
         type: "registry:shadcn",
-        name: getRegistryItemName(moduleInfo.id, configRootDir, uiComponentsDir),
+        name: getRegistryItemName(moduleId, configRootDir, uiComponentsDir),
       }
     }
 
-    if (isComponent(moduleInfo.id)) {
+    if (isComponent(moduleId)) {
       return {
         type: "registry:component",
-        name: getRegistryItemName(moduleInfo.id, configRootDir, componentsDir),
+        name: getRegistryItemName(moduleId, configRootDir, componentsDir),
       }
     }
 
-    if (isComposable(moduleInfo.id)) {
+    if (isComposable(moduleId)) {
       return {
         type: "registry:hook",
-        name: getRegistryItemName(moduleInfo.id, configRootDir, composablesDir),
+        name: getRegistryItemName(moduleId, configRootDir, composablesDir),
       }
     }
 
-    if (isUtil(moduleInfo.id)) {
+    if (isUtil(moduleId)) {
       return {
         type: "registry:lib",
-        name: getRegistryItemName(moduleInfo.id, configRootDir, srcDir),
+        name: getRegistryItemName(moduleId, configRootDir, srcDir),
       }
     }
 
-    if (moduleInfo.isExternal) {
+    if (true === external) {
       return {
         type: "external",
-        name: moduleInfo.id,
+        name: moduleId,
       }
     }
 
     return {
       type: "registry:internal",
-      name: moduleInfo.id,
+      name: moduleId,
     }
   }
 
   return {
     name: PLUGIN_NAME,
 
+    options(options) {
+      return {
+        ...options,
+        input: {
+          ...convertToInputRecords(options.input),
+          "shadcn-registry": SHADCN_REGISTRY_VIRTUAL_MODULE_ID,
+        },
+      }
+    },
+
+    outputOptions(options) {
+      return {
+        ...options,
+        entryFileNames(chunkInfo) {
+          if (SHADCN_REGISTRY_VIRTUAL_MODULE_ID == chunkInfo.facadeModuleId) {
+            return SHADCN_REGISTRY_CHUNK_FILENAME
+          }
+
+          if (!options.entryFileNames) {
+            return chunkInfo.name
+          }
+
+          if ("function" == typeof options.entryFileNames) {
+            return options.entryFileNames(chunkInfo)
+          }
+
+          return chunkInfo.name
+        }
+      }
+    },
+
     configResolved(config) {
       configRootDir = config.root
     },
 
-    async buildStart(options) {
-      const componentsConfigPath = joinPath(configRootDir, "components.json")
-      const { default: componentsConfig } = await import(componentsConfigPath, { with: { type: "json" } })
-      const resolvedAliases = await resolveComponentsConfigAliases.call(this, componentsConfig)
-      // console.debug(resolvedAliases)
+    async buildStart() {
+      const componentsConfig = await importComponentsConfig(configRootDir)
+      shadcnEntries = await resolveShadcnEntries.call(this, componentsConfig)
     },
-
-    // writeBundle(...args) {
-    //   console.debug(...args)
-    // },
 
     transform: {
       order: "pre",
@@ -125,7 +156,13 @@ export default function shadcnRegistry(): Plugin<void> {
 
     resolveId: {
       order: "pre",
-      handler(moduleId, importer, options) {
+      async handler(moduleId, importer, options) {
+        if (SHADCN_REGISTRY_VIRTUAL_MODULE_ID == moduleId) {
+          return {
+            id: moduleId,
+          }
+        }
+
         if (true == options.custom?.[PLUGIN_NAME]?.resolveDir) {
           return moduleId
         }
@@ -133,38 +170,45 @@ export default function shadcnRegistry(): Plugin<void> {
     },
 
     load(moduleId, options) {
-      // console.debug("[load]", moduleId)
-      // if (moduleId == "/root/dev/myshkouski/event-calendar-vue/src/components/event-calendar/draggable-event.vue") {
-      //   const moduleInfo = this.getModuleInfo(moduleId)
-      //   console.debug("!!!", moduleInfo)
-      // }
+      if (SHADCN_REGISTRY_VIRTUAL_MODULE_ID == moduleId) {
+        return {
+          moduleType: "js",
+          code: `
+            ${[
+              ...shadcnEntries.components.entries,
+              ...shadcnEntries.composables.entries,
+              ...shadcnEntries.lib.entries,
+              ...shadcnEntries.utils.entries,
+            ].map((entry: string) => `import "${entry}";`).join("\n")
+            }
+          `,
+        }
+      }
     },
 
     shouldTransformCachedModule() {
       return false
     },
 
-    moduleParsed(moduleInfo) {
-      // const moduleId = moduleInfo.id
-      // if (moduleId == "/root/dev/myshkouski/event-calendar-vue/src/components/event-calendar/draggable-event.vue") {
-      //   console.debug({ ...moduleInfo })
-      // }
-      // if (moduleId == "/root/dev/myshkouski/event-calendar-vue/src/components/event-calendar/draggable-event.vue?vue&type=script&setup=true&lang.ts") {
-      //   console.debug(moduleInfo)
-      // }
-    },
+    async buildEnd() {
+      const hoistedImportedResolutionIds = getHoistedImportedIds.call(this, SHADCN_REGISTRY_VIRTUAL_MODULE_ID)
 
-    buildEnd() {
       const shadcnItems = new Map<string, ShadcnItem>()
 
-      for (const moduleId of this.getModuleIds()) {
-        const moduleInfo = this.getModuleInfo(moduleId)
-        if (!moduleInfo) {
-          // TODO: throw error instead?
-          continue
+      for (const moduleId of hoistedImportedResolutionIds) {
+
+        const resolvedId = await this.resolve(moduleId)
+        if (!resolvedId) {
+          throw new Error(`Unable to resolve "${moduleId}".`)
         }
 
-        const shadcnItemMeta = getShadcnItemMeta(moduleInfo)
+        const shadcnItemMeta = getShadcnItemMeta.call(this, resolvedId)
+
+        const moduleInfo = this.getModuleInfo(moduleId)
+        if (!moduleInfo) {
+          throw new Error(`Unable to find info for module "${moduleId}".`)
+        }
+
         shadcnItems.set(moduleInfo.id, {
           meta: shadcnItemMeta,
           modules: [...moduleInfo.dynamicallyImportedIds, ...moduleInfo.importedIds],
@@ -202,7 +246,17 @@ export default function shadcnRegistry(): Plugin<void> {
       }
     },
 
-    generateBundle() {
+    renderChunk(code, chunk, options, meta) {
+      if (chunk.facadeModuleId) { }
+    },
+
+    generateBundle(options, bundle) {
+      // this.emitFile({
+      //   type: "asset",
+      //   fileName: `_bundle-keys-${++bundleIndex}.json`,
+      //   source: JSON.stringify(Object.keys(bundle))
+      // })
+
       this.emitFile({
         type: "asset",
         fileName: "shadcn-registry/index.json",
@@ -216,33 +270,43 @@ export default function shadcnRegistry(): Plugin<void> {
           source: JSON.stringify(item, null, 2)
         })
       }
-    }
+    },
   }
 }
 
-async function resolveComponentsConfigAliases(this: PluginContext, config: any) {
-  const resolvedAliases: [string, { id: string, filter: (patter?: FilterPattern) => boolean }][] = []
-  for (const [name, alias] of Object.entries(config.aliases)) {
-    const resolveDir = false == ["utils"].includes(name)
-    // @ts-expect-error
-    const resolvedId = await this.resolve(alias, undefined, {
-      custom: {
-        [PLUGIN_NAME]: {
-          resolveDir
-        }
+function getHoistedImportedIds(this: PluginContext, moduleId: string) {
+  const hoistedImportedIds = new Set<string>()
+
+  let moduleIdsToProcess = [moduleId]
+
+  while (moduleIdsToProcess.length) {
+    moduleIdsToProcess = moduleIdsToProcess.map(id => {
+      const moduleInfo = this.getModuleInfo(id)
+      if (!moduleInfo) {
+        throw new Error(`Unable to find info for module "${moduleId}".`)
       }
+      return moduleInfo
+    }).flatMap(moduleInfo => {
+      const importedIds = [
+        ...moduleInfo.importedIds,
+        ...moduleInfo.dynamicallyImportedIds,
+      ]
+
+      return importedIds
     })
-    if (resolvedId) {
-      resolvedAliases.push([
-        name,
-        {
-          id: resolvedId.id,
-          filter: createFilter(resolveDir ? joinPath(resolvedId.id, "*") : resolvedId.id)
-        }
-      ])
-    }
+
+    const nextModuleIdsToProcess = moduleIdsToProcess.filter(id => {
+      return false == hoistedImportedIds.has(id)
+    })
+
+    moduleIdsToProcess.forEach(id => {
+      hoistedImportedIds.add(id)
+    })
+
+    moduleIdsToProcess = nextModuleIdsToProcess
   }
-  return Object.fromEntries(resolvedAliases)
+
+  return hoistedImportedIds
 }
 
 type ShadcnItemDependencies = Pick<RegistryItem, "dependencies" | "registryDependencies" | "files">
@@ -287,6 +351,14 @@ function createShadcnItemDependencies(
         case "registry:shadcn":
           registryDependencies.add(meta.name)
           break
+
+        /**
+         * @todo  add dependencies for registry:hook, registry:component and registry:lib
+         *        instead of adding it as files 
+         */
+        // case "registry:hook":
+        //   registryDependencies.add(`https://my-shadcn-registry.github.io/r/${meta.name}`)
+        //   break
 
         case "registry:internal":
           modules.forEach(dependency => {
@@ -380,10 +452,116 @@ function getRegistryItemName(id: string, configRootDir: string, registryItemType
 }
 
 import type { registrySchema, registryItemSchema, registryItemTypeSchema, registryItemFileSchema } from "shadcn-vue/registry"
-import type { TypeOf } from "zod"
+import { z, type TypeOf } from "zod"
+import { stat } from "node:fs/promises"
 
 type Registry = TypeOf<typeof registrySchema>
 type RegistryItem = TypeOf<typeof registryItemSchema>
 type RegistryItemName = RegistryItem["name"]
 type RegistryItemType = TypeOf<typeof registryItemTypeSchema>
 type RegistryItemFile = TypeOf<typeof registryItemFileSchema>
+
+const shadcnComponentConfigSchema = z.object({
+  aliases: z.object({
+    ui: z.string(),
+    components: z.string(),
+    composables: z.string(),
+    utils: z.string(),
+    lib: z.string()
+  })
+})
+
+type ShadcnComponentConfig = TypeOf<typeof shadcnComponentConfigSchema>
+
+async function importComponentsConfig(configRootDir: string) {
+  const componentsConfigPath = joinPath(configRootDir, "components.json")
+  const { default: componentsConfig } = await import(componentsConfigPath, { with: { type: "json" } })
+  return shadcnComponentConfigSchema.parse(componentsConfig)
+}
+
+type Pattern = {
+  entries: string[]
+  include: string | string[]
+  ignore: string | string[]
+  // match: (id: string) => boolean
+}
+
+async function resolveShadcnEntries(this: PluginContext, config: ShadcnComponentConfig) {
+  const resolvedAliases: [keyof ShadcnComponentConfig["aliases"], Pattern][] = []
+
+  for (const [name, alias] of Object.entries(config.aliases) as [keyof ShadcnComponentConfig["aliases"], string][]) {
+    const resolveDir = false == ["utils"].includes(name)
+    const resolvedId = await this.resolve(alias, undefined, {
+      // attributs: {
+      //   "resolution-mode": "import"
+      // },
+      custom: {
+        [PLUGIN_NAME]: {
+          resolveShadcnComponentPaths: true,
+          resolveDir,
+        }
+      }
+    })
+
+    if (resolvedId) {
+      let path = resolvedId.id
+      const pathStats = await stat(path)
+      const include = []
+      const ignore = []
+      if (resolveDir && pathStats.isFile()) {
+        path = dirname(path)
+      }
+
+      if (resolveDir) {
+        const extGlob = ".{js,jsx,ts,tsx,vue}"
+        include.push(
+          joinPath(alias, "**/*" + extGlob)
+        )
+        include.push(
+          joinPath(path, "*" + extGlob),
+          joinPath(path, "*", "index" + extGlob),
+        )
+        ignore.push(
+          joinPath(path, "index" + extGlob),
+        )
+      } else {
+        include.push(
+          joinPath(alias)
+        )
+        include.push(
+          joinPath(path),
+        )
+      }
+      resolvedAliases.push([
+        name,
+        {
+          entries: await glob(include, { ignore }),
+          include,
+          ignore,
+        }
+      ])
+    }
+  }
+
+  return Object.fromEntries(resolvedAliases) as Record<keyof ShadcnComponentConfig["aliases"], Pattern>
+}
+
+function convertToInputRecords(input: InputOption | undefined) {
+  let inputRecords: Record<string, string> = {}
+
+  if ("string" == typeof input) {
+    inputRecords = {
+      0: input
+    }
+  } else if (Array.isArray(input)) {
+    for (const index in input) {
+      inputRecords[index] = input[index]
+    }
+  } else {
+    inputRecords = {
+      ...input
+    }
+  }
+
+  return inputRecords
+}
