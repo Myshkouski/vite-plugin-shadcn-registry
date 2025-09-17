@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-shadcn-registry",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A simple example library built by tsdown",
   "type": "module",
   "homepage": "https://github.com/myshkouski/vite-plugin-shadcn-registry",
