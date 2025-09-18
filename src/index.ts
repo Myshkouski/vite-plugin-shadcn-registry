@@ -191,11 +191,11 @@ export default function shadcnRegistry(): Plugin<void> {
     },
 
     async buildEnd() {
-      const hoistedImportedResolutionIds = getHoistedImportedIds.call(this, SHADCN_REGISTRY_VIRTUAL_MODULE_ID)
+      const hoistedImportedIds = getHoistedImportedIds.call(this, SHADCN_REGISTRY_VIRTUAL_MODULE_ID)
 
       const shadcnItems = new Map<string, ShadcnItem>()
 
-      for (const moduleId of hoistedImportedResolutionIds) {
+      for (const moduleId of hoistedImportedIds) {
 
         const resolvedId = await this.resolve(moduleId)
         if (!resolvedId) {
