@@ -245,12 +245,6 @@ export default function shadcnRegistry(): Plugin<void> {
       }
     },
 
-    renderChunk(code, chunk, options, meta) {
-      if (SHADCN_REGISTRY_VIRTUAL_MODULE_ID == chunk.facadeModuleId) {
-        console.debug(chunk.referencedFiles)
-      }
-    },
-
     generateBundle(options, bundle) {
       // this.emitFile({
       //   type: "asset",
