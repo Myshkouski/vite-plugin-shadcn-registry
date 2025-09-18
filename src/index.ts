@@ -125,7 +125,7 @@ export default function shadcnRegistry(): Plugin<void> {
             return options.entryFileNames(chunkInfo)
           }
 
-          return chunkInfo.name
+          return options.entryFileNames
         }
       }
     },
@@ -236,7 +236,6 @@ export default function shadcnRegistry(): Plugin<void> {
         } = createShadcnItemDependencies.call(this, id, shadcnItems, configRootDir)
 
         registry.addItem({
-          $schema: "https://shadcn-vue.com/schema/registry-item.json",
           name: shadcnItem.meta.name,
           type: shadcnItem.meta.type,
           files,
@@ -247,7 +246,9 @@ export default function shadcnRegistry(): Plugin<void> {
     },
 
     renderChunk(code, chunk, options, meta) {
-      if (chunk.facadeModuleId) { }
+      if (SHADCN_REGISTRY_VIRTUAL_MODULE_ID == chunk.facadeModuleId) {
+        console.debug(chunk.referencedFiles)
+      }
     },
 
     generateBundle(options, bundle) {
@@ -267,7 +268,10 @@ export default function shadcnRegistry(): Plugin<void> {
         this.emitFile({
           type: "asset",
           fileName: `shadcn-registry/${item.name}.json`,
-          source: JSON.stringify(item, null, 2)
+          source: JSON.stringify({
+            $schema: "https://shadcn-vue.com/schema/registry-item.json",
+            ...item
+          }, null, 2)
         })
       }
     },
