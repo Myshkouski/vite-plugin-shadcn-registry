@@ -20,7 +20,12 @@ const PLUGIN_NAME = "shadcn-registry"
 const SHADCN_REGISTRY_VIRTUAL_MODULE_ID = "\0virtual:shadcn-registry"
 const SHADCN_REGISTRY_CHUNK_FILENAME = "shadcn-registry.js"
 
-export default function shadcnRegistry(): Plugin<void> {
+type PluginOptions = Partial<{
+  name: string
+  description: string
+}>
+
+export default function shadcnRegistry(options?: PluginOptions): Plugin<PluginOptions> {
   const srcDir = "src"
   const isSourceFile = createFilter([
     joinPath(srcDir, "**")
@@ -50,7 +55,7 @@ export default function shadcnRegistry(): Plugin<void> {
 
   let configRootDir: string
   let shadcnEntries: Record<keyof ShadcnComponentConfig["aliases"], Pattern>
-  let registry: RegistryImpl
+  let registry: RegistryImpl = new RegistryImpl(options?.name || "", options?.description || "")
 
   function getShadcnItemMeta(this: PluginContext, resolvedId: ResolvedId): ShadcnItemMeta {
     const { id: moduleId, external } = resolvedId
@@ -215,8 +220,6 @@ export default function shadcnRegistry(): Plugin<void> {
           code: moduleInfo.meta[PLUGIN_NAME]?.sourceCode
         })
       }
-
-      registry = new RegistryImpl("some name", "some homepage")
 
       for (const [id, shadcnItem] of shadcnItems.entries()) {
         if ("external" == shadcnItem.meta.type) {
